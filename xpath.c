@@ -18,6 +18,9 @@
 #include "libxml.h"
 
 #include <string.h>
+/* Correcting the problem with the XPath matches function */
+#include <regex.h>
+#define MAX_MATCHES 1 //The maximum number of matches allowed in a single string
 
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
@@ -9091,6 +9094,132 @@ xmlXPathStartsWithFunction(xmlXPathParserContextPtr ctxt, int nargs) {
 }
 
 /**
+ * xmlXPathEndsWithFunction:
+ * @ctxt:  the XPath Parser context
+ * @nargs:  the number of arguments
+ *
+ * Implement the ends-with() XPath 2.0 function
+ *    boolean ends-with(string, string)
+ * The ends-with function returns true if the first argument string
+ * ends with the second argument string, and otherwise returns false.
+ */
+void
+xmlXPathEndsWithFunction(xmlXPathParserContextPtr ctxt, int nargs) {
+    xmlXPathObjectPtr hay, needle;
+    int h, n;
+
+    CHECK_ARITY(2);
+    CAST_TO_STRING;
+    CHECK_TYPE(XPATH_STRING);
+    needle = valuePop(ctxt);
+    CAST_TO_STRING;
+    hay = valuePop(ctxt);
+
+    if ((hay == NULL) || (hay->type != XPATH_STRING)) {
+	xmlXPathReleaseObject(ctxt->context, hay);
+	xmlXPathReleaseObject(ctxt->context, needle);
+	XP_ERROR(XPATH_INVALID_TYPE);
+    }
+    h = xmlStrlen(hay->stringval);
+    n = xmlStrlen(needle->stringval);
+    if (h < n || xmlStrncmp(hay->stringval + h - n, needle->stringval, n))
+        valuePush(ctxt, xmlXPathCacheNewBoolean(ctxt->context, 0));
+    else
+        valuePush(ctxt, xmlXPathCacheNewBoolean(ctxt->context, 1));
+    xmlXPathReleaseObject(ctxt->context, hay);
+    xmlXPathReleaseObject(ctxt->context, needle);
+}
+
+void
+xmlXPathCompareFunction(xmlXPathParserContextPtr ctxt, int nargs) {
+    xmlXPathObjectPtr arg1, arg2;
+    int res;
+
+    CHECK_ARITY(2);
+    CAST_TO_STRING;
+    CHECK_TYPE(XPATH_STRING);
+    arg2 = valuePop(ctxt);
+    CAST_TO_STRING;
+    CHECK_TYPE(XPATH_STRING);
+    arg1 = valuePop(ctxt);
+
+    res = xmlStrcmp(arg1->stringval, arg2->stringval);
+    if (res > 1)
+    	res = 1;
+    if (res < -1)
+    	res = -1;
+    valuePush(ctxt, xmlXPathCacheNewFloat(ctxt->context, res));
+    xmlXPathReleaseObject(ctxt->context, arg1);
+    xmlXPathReleaseObject(ctxt->context, arg2);
+}
+
+void
+xmlXPathLowerCaseFunction(xmlXPathParserContextPtr ctxt, int nargs) {
+    xmlXPathObjectPtr arg;
+    xmlChar *tmp;
+
+    CHECK_ARITY(1);
+    CAST_TO_STRING;
+    CHECK_TYPE(XPATH_STRING);
+    arg = valuePop(ctxt);
+
+    tmp = arg->stringval;
+    if (tmp != NULL)
+    	while (*tmp != '\0')
+    		*tmp++ = tolower(*tmp); /* TODO */
+    valuePush(ctxt, arg);
+}
+
+void
+xmlXPathUpperCaseFunction(xmlXPathParserContextPtr ctxt, int nargs) {
+    xmlXPathObjectPtr arg;
+    xmlChar *tmp;
+
+    CHECK_ARITY(1);
+    CAST_TO_STRING;
+    CHECK_TYPE(XPATH_STRING);
+    arg = valuePop(ctxt);
+
+    tmp = arg->stringval;
+    if (tmp != NULL)
+    	while (*tmp != '\0')
+    		*tmp++ = toupper(*tmp); /* TODO */
+    valuePush(ctxt, arg);
+}
+
+void /* TODO: Testing */
+xmlXPathMatchesFunction(xmlXPathParserContextPtr ctxt, int nargs) {
+    xmlXPathObjectPtr input, pattern;
+    int rv;
+    regex_t exp;
+    //xmlRegexpPtr comp;
+    int ret;
+
+    CHECK_ARITY(2);
+    CAST_TO_STRING;
+    CHECK_TYPE(XPATH_STRING);
+    pattern = valuePop(ctxt);
+    CAST_TO_STRING;
+    CHECK_TYPE(XPATH_STRING);
+    input = valuePop(ctxt);
+
+    //comp = xmlRegexpCompile(pattern->stringval);
+    rv = regcomp(&exp, (char *) pattern->stringval, REG_EXTENDED);
+    if (rv != 0)
+    	XP_ERROR(XPATH_EXPR_ERROR);
+    //ret = xmlRegexpExec(comp, input->stringval);
+    regmatch_t matches[MAX_MATCHES]; //A list of the matches in the string (a list of 1)
+    ret = regexec(&exp, (char *) input->stringval, MAX_MATCHES, matches, 0);
+    if (ret != 0 && ret != 1)
+    	XP_ERROR(XPATH_EXPR_ERROR);
+    valuePush(ctxt, xmlXPathCacheNewBoolean(ctxt->context, ret));
+    //xmlRegFreeRegexp(comp);
+    regfree(&exp);
+    xmlXPathReleaseObject(ctxt->context, input);
+    xmlXPathReleaseObject(ctxt->context, pattern);
+}
+
+/**
  * xmlXPathSubstringFunction:
  * @ctxt:  the XPath Parser context
  * @nargs:  the number of arguments
@@ -15369,6 +15498,16 @@ xmlXPathRegisterAllFunctions(xmlXPathContextPtr ctxt)
                          xmlXPathStringLengthFunction);
     xmlXPathRegisterFunc(ctxt, (const xmlChar *)"starts-with",
                          xmlXPathStartsWithFunction);
+    xmlXPathRegisterFunc(ctxt, (const xmlChar *)"ends-with",
+                             xmlXPathEndsWithFunction);
+    xmlXPathRegisterFunc(ctxt, (const xmlChar *)"compare",
+                             xmlXPathCompareFunction);
+    xmlXPathRegisterFunc(ctxt, (const xmlChar *)"lower-case",
+                             xmlXPathLowerCaseFunction);
+    xmlXPathRegisterFunc(ctxt, (const xmlChar *)"upper-case",
+                             xmlXPathUpperCaseFunction);
+    xmlXPathRegisterFunc(ctxt, (const xmlChar *)"matches",
+                             xmlXPathMatchesFunction);
     xmlXPathRegisterFunc(ctxt, (const xmlChar *)"substring",
                          xmlXPathSubstringFunction);
     xmlXPathRegisterFunc(ctxt, (const xmlChar *)"substring-before",
